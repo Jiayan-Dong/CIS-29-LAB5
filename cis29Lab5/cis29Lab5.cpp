@@ -13,7 +13,6 @@
 
 using namespace std;
 
-
 class Point : pair<double,double>
 {
 	double X = 0;
@@ -98,6 +97,7 @@ public:
 class Graph : public Fl_Widget
 {
 	Points points;
+	pair<double, double> line;
 	Points xtransform;
 	Points ytransform;
 	pair<double, double> axisrange;
@@ -109,6 +109,8 @@ public:
 	int size() { return points.size(); }
 	void add(double x, double y) { points.set(x, y); }
 	void add(Point& p) { points.set(p); }
+	void setLine(double k, double b) { line = make_pair(k, b); }
+	void setLine(pair<double, double> p) { line = p; }
 	void bounds()
 	{
 		minmaxX.first = points.minX();
@@ -150,12 +152,18 @@ public:
 	{
 		fl_color(FL_BLACK);
 		fl_line_style(FL_SOLID, 3, NULL);
-		for (int i = 1; i < size(); i++)
+		for (int i = 0; i < size(); i++)
 		{
-			Point p1 = xtransform[i - 1];
 			Point p2 = xtransform[i];
-			fl_line(p1.getX(), p1.getY(), p2.getX(), p2.getY());
+			fl_begin_line();
+			fl_arc(p2.getX(), p2.getY(), 2.5, 0.0, 360.0);
+			fl_end_line();
 		}
+		Point lineBeg(points[0].getX(), points[0].getX() * line.first + line.second);
+		Point lineEnd(points[points.size() - 1].getX(), points[points.size() - 1].getX() * line.first + line.second);
+		fl_color(FL_RED);
+		fl_line_style(FL_SOLID, 3, NULL);
+		fl_line(xtransform[0].getX(), scalePointY(lineBeg).getY(), xtransform[points.size() - 1].getX(), scalePointY(lineEnd).getY());
 	}
 };
 
@@ -181,13 +189,14 @@ public:
 		graph = make_unique<Graph>(origin.first, origin.second, dimension.first, dimension.second);
 		window->resizable(graph.get());
 	}
-	void set(Points& p)
+	void set(Points& p, pair<double, double>& l)
 	{
 		for (int i = 0; i < p.size(); i++)
 		{
 			Point pt = p[i];
 			graph->add(pt);
 		}
+		graph->setLine(l);
 		graph->bounds();
 		graph->scaleY();
 		graph->scaleX();
@@ -273,7 +282,6 @@ private:
 	double sumX2;
 	double sumY;
 	double sumXY;
-	Points regLine;
 public:
 	Regression()
 	{
@@ -291,25 +299,9 @@ public:
 		}
 		double k = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
 		double b = (sumY - k * sumX) / n;
-		double start = ps.minX() - 0.5;
-		regLine.set(start, start * k + b);
-		regLine.set(start+1, (start + 1) * k + b);
-		regLine.set(start+2, (start + 2) * k + b);
-		regLine.set(start+3, (start + 3) * k + b);
-		regLine.set(start+4, (start + 4) * k + b);
-		regLine.set(start + 5, (start + 5) * k + b);
-		regLine.set(start + 6, (start + 6) * k + b);
-		regLine.set(start + 7, (start + 7) * k + b);
-		regLine.set(start + 8, (start + 8) * k + b);
-		regLine.set(start + 9, (start + 9) * k + b);
-		regLine.set(start + 10, (start + 10) * k + b);
-		regLine.set(start + 11, (start + 11) * k + b);
-		regLine.set(start + 12, (start + 12) * k + b);
+		double start = ps.minX();
+		double end = ps.maxY();
 		return make_pair(k, b);
-	}
-	Points getRegLine()
-	{
-		return regLine;
 	}
 };
 
@@ -330,13 +322,12 @@ public:
 		Regression reg;
 		pair<double, double> regLine = reg.calc(points);
 		cout << "Regression Line: y=" << regLine.first << "x+" << regLine.second;
-		Points line = reg.getRegLine();
 		int width = 800;
 		int height = 600;
 		string caption = "XY Plot";
 		XYPlot plot(0, 0, width, height, caption);
 		plot.start();
-		plot.set(line);
+		plot.set(points, regLine);
 		plot.draw();
 	}
 };

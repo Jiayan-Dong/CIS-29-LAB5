@@ -4,12 +4,14 @@
 #include <FL/Fl.H>
 #include <FL/fl_draw.H>
 #include <FL/Fl_Double_Window.H>
-#include <string>	
 #include <vector>
 #include <iostream>
 #include <fstream>
 #include <algorithm>
+#include <numeric>
 #include <memory>
+#include <functional>
+#include <regex>
 
 using namespace std;
 
@@ -34,6 +36,8 @@ class Points
 	vector<Point> points;
 	pair<double, double> minimum;
 	pair<double, double> maximum;
+	function<bool(Point, Point)> compareX = [](Point l, Point r) { return l.getX() < r.getX(); };
+	function<bool(Point, Point)> compareY = [](Point l, Point r) { return l.getY() < r.getY(); };
 public:
 	int size() { return points.size(); }
 	Point get(int index) { return points[index]; }
@@ -44,53 +48,23 @@ public:
 		Point p(x, y);
 		points.push_back(p);
 	}
-	double maxX()
+	pair<double, double> minmaxX()
 	{
-		maximum.first = points[0].getX();
-		int index = 1;
-		while (index < points.size())
-		{
-			if (maximum.first < points[index].getX())
-				maximum.first = points[index].getX();
-			index++;
-		}
-		return maximum.first;
+		auto iminmax = minmax_element(points.begin(), points.end(), compareX);
+		return make_pair(iminmax.first->getX(), iminmax.second->getX());
 	}
-	double minX()
+	pair<double, double> minmaxY()
 	{
-		minimum.first = points[0].getX();
-		int index = 1;
-		while (index < points.size())
-		{
-			if (minimum.first > points[index].getX())
-				minimum.first = points[index].getX();
-			index++;
-		}
-		return minimum.first;
+		auto iminmax = minmax_element(points.begin(), points.end(), compareY);
+		return make_pair(iminmax.first->getY(), iminmax.second->getY());
 	}
-	double maxY()
+	void for_all(function<void(Point)> fun)
 	{
-		maximum.second = points[0].getY();
-		int index = 1;
-		while (index < points.size())
-		{
-			if (maximum.second < points[index].getY())
-				maximum.second = points[index].getY();
-			index++;
-		}
-		return maximum.second;
+		const auto _ = for_each(points.begin(), points.end(), fun);
 	}
-	double minY()
+	double get_sum(function<double(Point)> fun)
 	{
-		minimum.first = points[0].getY();
-		int index = 1;
-		while (index < points.size())
-		{
-			if (minimum.first > points[index].getY())
-				minimum.first = points[index].getY();
-			index++;
-		}
-		return minimum.first;
+		return accumulate(points.begin(), points.end(), 0.0, [&](double sum, Point i) {return sum + fun(i); });
 	}
 };
 
@@ -98,6 +72,8 @@ class Graph : public Fl_Widget
 {
 	Points points;
 	pair<double, double> line;
+	string lineFunction;
+	Points lineTransformed;
 	Points xtransform;
 	Points ytransform;
 	pair<double, double> axisrange;
@@ -111,14 +87,12 @@ public:
 	void add(Point& p) { points.set(p); }
 	void setLine(double k, double b) { line = make_pair(k, b); }
 	void setLine(pair<double, double> p) { line = p; }
+	void setLineFunction(string f) { lineFunction = f; }
 	void bounds()
 	{
-		minmaxX.first = points.minX();
-		minmaxX.second = points.maxX();
-		minmaxY.first = points.minY();
-		minmaxY.second = points.maxY();
-		axisrange.first = minmaxX.second - minmaxX.first;
-		axisrange.second = minmaxY.second - minmaxY.first;
+		minmaxX = points.minmaxX();
+		minmaxY = points.minmaxY();
+		axisrange = make_pair(minmaxX.second - minmaxX.first, minmaxY.second - minmaxY.first);
 	}
 	Point scalePointX(int index, double interval)
 	{
@@ -129,11 +103,7 @@ public:
 	{
 		int index = 0;
 		double interval = floor((double)w() / (points.size()));
-		for (double i = interval; i <= w() + interval; i += interval)
-		{
-			Point p = scalePointX(index++, i);
-			xtransform.set(p);
-		}
+		points.for_all([&](Point i) {xtransform.set(scalePointX(index++, index*interval)); });
 	}
 	Point scalePointY(Point point)
 	{
@@ -142,28 +112,28 @@ public:
 	}
 	void scaleY()
 	{
-		for (int i = 0; i < points.size(); i++)
-		{
-			Point p = scalePointY(points[i]);
-			ytransform.set(p.getX(), p.getY());
-		}
+		points.for_all([&](Point i) {
+			Point p = scalePointY(i); 
+			ytransform.set(p.getX(), p.getY()); });
+	}
+	void scaleLine()
+	{
+		function<double(double)> lineFunc = [=](double x) {return x * line.first + line.second; };
+		Point lineBeg(points.minmaxX().first, lineFunc(points.minmaxX().first));
+		Point lineEnd(points.minmaxX().second, lineFunc(points.minmaxX().second));
+		lineTransformed.set(xtransform.minmaxX().first, scalePointY(lineBeg).getY());
+		lineTransformed.set(xtransform.minmaxX().second, scalePointY(lineEnd).getY());
 	}
 	void draw()
 	{
 		fl_color(FL_BLACK);
 		fl_line_style(FL_SOLID, 3, NULL);
-		for (int i = 0; i < size(); i++)
-		{
-			Point p2 = xtransform[i];
-			fl_begin_line();
-			fl_arc(p2.getX(), p2.getY(), 2.5, 0.0, 360.0);
-			fl_end_line();
-		}
-		Point lineBeg(points[0].getX(), points[0].getX() * line.first + line.second);
-		Point lineEnd(points[points.size() - 1].getX(), points[points.size() - 1].getX() * line.first + line.second);
+		xtransform.for_all([](Point i) { fl_circle(i.getX(), i.getY(), 3.5); });
 		fl_color(FL_RED);
 		fl_line_style(FL_SOLID, 3, NULL);
-		fl_line(xtransform[0].getX(), scalePointY(lineBeg).getY(), xtransform[points.size() - 1].getX(), scalePointY(lineEnd).getY());
+		fl_draw(lineFunction.data(), lineTransformed[0].getX(), lineTransformed[0].getY());
+		fl_line(lineTransformed[0].getX(), lineTransformed[0].getY(), lineTransformed[1].getX(), lineTransformed[1].getY());
+		
 	}
 };
 
@@ -189,17 +159,15 @@ public:
 		graph = make_unique<Graph>(origin.first, origin.second, dimension.first, dimension.second);
 		window->resizable(graph.get());
 	}
-	void set(Points& p, pair<double, double>& l)
+	void set(Points& p, pair<double, double>& l, string& strFun)
 	{
-		for (int i = 0; i < p.size(); i++)
-		{
-			Point pt = p[i];
-			graph->add(pt);
-		}
+		p.for_all([&](Point i) {graph->add(i);});
 		graph->setLine(l);
+		graph->setLineFunction(strFun);
 		graph->bounds();
 		graph->scaleY();
 		graph->scaleX();
+		graph->scaleLine();
 	}
 	int draw()
 	{
@@ -213,21 +181,6 @@ class FilePraser
 private:
 	Points points;
 	string filename;
-	vector<string> ParseString(string toParse, char delimiter)
-	{
-		vector<string> vs;
-		int start = 0;
-		int position = -1;
-		while ((position = toParse.find(delimiter, start)) != -1)
-		{
-			string s = toParse.substr(start, position - start);
-			vs.push_back(s);
-			start = position + 1;
-		}
-		if (start > 0)
-			vs.push_back(toParse.substr(start, toParse.length() - start));
-		return vs;
-	}
 public:
 	FilePraser(string i)
 	{
@@ -241,15 +194,14 @@ public:
 			if (in.is_open())
 			{
 				string line;
+				smatch match;
+				regex pattern("(.*),(.*)");
 				while (!in.eof())
 				{
 					getline(in, line);
-					vector<string> vs = ParseString(line, ',');
-					if (vs.size() > 0)
+					if (regex_search(line, match, pattern))
 					{
-						double n1 = stod(vs[0], NULL);
-						double n2 = stod(vs[1], NULL);
-						points.set(n1, n2);
+						points.set(stod(match[1], NULL), stod(match[2], NULL));
 					}
 				}
 				in.close();
@@ -266,14 +218,11 @@ public:
 			exit(0);
 		}
 	}
-
 	Points getPoints()
 	{
 		return points;
 	}
 };
-
-
 
 class Regression
 {
@@ -282,6 +231,7 @@ private:
 	double sumX2;
 	double sumY;
 	double sumXY;
+	pair<double, double> slope_intercept;
 public:
 	Regression()
 	{
@@ -290,18 +240,20 @@ public:
 	pair<double, double> calc(Points& ps)
 	{
 		int n = ps.size();
-		for (int i = 0; i < n; i++)
-		{
-			sumX += ps[i].getX();
-			sumX2 += ps[i].getX() * ps[i].getX();
-			sumY += ps[i].getY();
-			sumXY += ps[i].getX() * ps[i].getY();
-		}
+		sumX = ps.get_sum([](Point i) {return i.getX(); });
+		sumY = ps.get_sum([](Point i) {return i.getY(); });
+		sumX2 = ps.get_sum([](Point i) {return i.getX()* i.getX(); });
+		sumXY = ps.get_sum([](Point i) {return i.getX() * i.getY(); });
 		double k = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
 		double b = (sumY - k * sumX) / n;
-		double start = ps.minX();
-		double end = ps.maxY();
-		return make_pair(k, b);
+		double start = ps.minmaxX().first;
+		double end = ps.minmaxY().second;
+		slope_intercept = make_pair(k, b);
+		return slope_intercept;
+	}
+	string getLineFunction()
+	{
+		return "Regression Line: y=" + to_string(slope_intercept.first) + "x+" + to_string(slope_intercept.second);
 	}
 };
 
@@ -321,27 +273,19 @@ public:
 	{
 		Regression reg;
 		pair<double, double> regLine = reg.calc(points);
-		cout << "Regression Line: y=" << regLine.first << "x+" << regLine.second;
+		string strFun = reg.getLineFunction();
 		int width = 800;
 		int height = 600;
 		string caption = "XY Plot";
 		XYPlot plot(0, 0, width, height, caption);
 		plot.start();
-		plot.set(points, regLine);
+		plot.set(points, regLine, strFun);
 		plot.draw();
 	}
 };
 
 void main()
 {
-	//int width = 800;
-	//int height = 600;
-	//string caption = "XY Plot";
-	//Points points = SetPoints("scatter.csv");
-	//XYPlot plot(0, 0, width, height, caption);
-	//plot.start();
-	//plot.set(points);
-	//plot.draw();
 	DrawRegression drawing("scatter.csv");
 	drawing.disPlay();
 }

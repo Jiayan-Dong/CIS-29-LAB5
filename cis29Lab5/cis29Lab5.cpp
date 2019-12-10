@@ -81,7 +81,7 @@ class Graph : public Fl_Widget
 	pair<double, double> minmaxY;
 	double border = 10;
 public:
-	Graph(int X, int Y, int W, int H, string S = "") : Fl_Widget(X, Y, W, H, S.data()) { }
+	Graph(int X, int Y, int W, int H, string S = "") : Fl_Widget(X, Y, W, H, S.data()), line(make_pair(0.0, 0.0)), lineFunction(""){ }
 	int size() { return points.size(); }
 	void add(double x, double y) { points.set(x, y); }
 	void add(Point& p) { points.set(p); }
